@@ -135,6 +135,13 @@ def categorize(description: str) -> str:
 # ---------------------------------------------------------------------------
 MONEY_RE = re.compile(r"[\d,]+\.?\d*")
 
+DATE_RE = re.compile(
+    r"\b(\d{1,2}[-/]\w{2,9}[-/]\d{2,4}"   # 10-Nov-2024, 10/11/2024
+    r"|\d{1,2}\s+\w+\s+\d{4}"              # 10 November 2024
+    r"|\w{3,9}\s+\d{1,2},?\s+\d{4}"        # November 10, 2024
+    r"|\d{4}[-/]\d{2}[-/]\d{2})\b"         # 2024-11-10
+)
+
 
 def looks_like_amount(token: str) -> bool:
     return bool(re.fullmatch(r"[\d,]+\.?\d*", token.replace(",", "")))
@@ -252,10 +259,13 @@ def extract_line_items(pdf_path: Path) -> list[dict]:
                             if not non_empty:
                                 continue
 
-                            first = cells[0].lower() if cells[0] else ""
+                            first = cells[0].lower().rstrip(":") if cells[0] else ""
 
                             # Skip column header rows and patient info rows
                             if first in skip_headers:
+                                continue
+                            # Also skip rows whose first cell ends with ":" (label rows like "Patient Name:")
+                            if cells[0].strip().endswith(":"):
                                 continue
 
                             # Detect section header: first cell has text, rest are None/empty
@@ -270,27 +280,51 @@ def extract_line_items(pdf_path: Path) -> list[dict]:
                             if first == "" and any("subtotal" in (c or "").lower() for c in cells):
                                 continue
 
-                            # Extract description and amount
+                            # Pull out date cells FIRST so they don't pollute description
+                            date_val = ""
+                            cells_no_date = []
+                            for cell in cells:
+                                if cell and not date_val:
+                                    m = DATE_RE.search(cell)
+                                    # Accept as a date cell only if it's short (pure date, not description)
+                                    if m and len(cell.strip()) <= 15:
+                                        date_val = m.group(0)
+                                        continue  # remove from cells used for description
+                                cells_no_date.append(cell)
+                            cells = cells_no_date
+
+                            # Extract note, amount, description from remaining cells
                             desc_parts = []
                             amount = ""
                             note = ""
-                            # Last non-empty cell that's a note flag
-                            if cells[-1] and not looks_like_amount(cells[-1].replace(",","")):
+                            if cells[-1] and not looks_like_amount(cells[-1].replace(",", "")):
                                 note = cells[-1]
                                 cells = cells[:-1]
+                            # Walk cells right-to-left: grab amount, unit price, qty — keep only description
+                            qty_val = ""
+                            unit_price = ""
+                            numeric_seen = 0  # first numeric = amount, second = unit price
                             for cell in reversed(cells):
-                                if not amount and cell and looks_like_amount(cell.replace(",", "").replace(".", "")):
-                                    amount = cell
+                                if not cell:
+                                    continue
+                                clean = cell.replace(",", "").replace(".", "")
+                                is_numeric = looks_like_amount(clean)
+                                is_qty = bool(re.match(
+                                    r"^\d+(\s*(days?|hrs?|vials?|amps?|bags?|sets?|units?|packs?|"
+                                    r"doses?|syringes?|copies|rounds?|visits?|tabs?|caps?))?$",
+                                    cell.strip(), re.I))
+                                if is_numeric and numeric_seen == 0:
+                                    amount = cell; numeric_seen += 1
+                                elif is_numeric and numeric_seen == 1:
+                                    unit_price = cell; numeric_seen += 1  # skip unit price
+                                elif is_qty and not qty_val:
+                                    qty_val = cell  # skip qty
                                 else:
-                                    if cell:
-                                        desc_parts.insert(0, cell)
+                                    desc_parts.insert(0, cell)
                             description = " ".join(desc_parts).strip()
                             if not description or len(description) <= 2:
                                 continue
 
-                            # Determine category: non-covered note overrides everything;
-                            # then check item-level keywords for specific fee types;
-                            # then fall back to section header, then keyword match.
                             if "non-covered" in note.lower() or "not covered" in note.lower():
                                 category = "Not Covered by Insurance"
                             else:
@@ -304,20 +338,6 @@ def extract_line_items(pdf_path: Path) -> list[dict]:
                                     category = current_section_category
                                 else:
                                     category = item_kw
-
-                            # Try to extract a date from the row cells
-                            date_val = ""
-                            date_re = re.compile(
-                                r"\b(\d{1,2}[-/]\w{2,3}[-/]\d{2,4}"
-                                r"|\d{1,2}\s+\w+\s+\d{4}"
-                                r"|\w+\s+\d{1,2},?\s+\d{4}"
-                                r"|\d{4}[-/]\d{2}[-/]\d{2})\b"
-                            )
-                            for cell in non_empty:
-                                m = date_re.search(cell)
-                                if m:
-                                    date_val = m.group(0)
-                                    break
 
                             items.append({
                                 "description": description,
