@@ -25,42 +25,96 @@ from openpyxl.utils import get_column_letter
 # Category definitions — keywords mapped to category name
 # ---------------------------------------------------------------------------
 CATEGORIES = {
+    # UB-04 revenue codes 010X — inpatient accommodation
     "Room & Board": [
         "room", "board", "accommodation", "ward", "bed", "admission",
-        "inpatient", "overnight", "daily charge", "hospital stay", "nursing",
+        "inpatient", "overnight", "daily charge", "hospital stay",
+        "private room", "semi-private", "isolation room", "step-down",
+        "telemetry", "nursery", "newborn", "maternity",
     ],
+    # UB-04 revenue codes 020X — ICU / intensive care
+    "ICU / Intensive Care": [
+        "icu", "intensive care", "critical care", "ccu", "coronary care",
+        "nicu", "picu", "burn unit", "high dependency", "hdu",
+        "cardiac intensive", "step down unit",
+    ],
+    # UB-04 revenue codes 036X — operating room / theatre
     "Operating Room": [
-        "operating room", "or fee", "theatre", "theater", "operation room",
+        "operating room", "operating theatre", "operating theater",
+        "or fee", "theatre fee", "theater fee", "operation room",
         "surgical suite", "recovery room", "post-op", "pre-op",
+        "surgical supply", "surgical supplies", "sterile", "draping",
+        "cell salvage", "intra-operative", "post-operative recovery",
+        "laparoscop", "endoscop",
     ],
+    # Surgeon fees
     "Surgeon's Fee": [
         "surgeon", "surgical fee", "surgeon fee", "operative fee",
-        "surgery fee", "surgical charge",
+        "surgery fee", "surgical charge", "assistant surgeon",
+        "primary surgeon", "operating surgeon",
     ],
+    # UB-04 revenue codes 037X — anesthesia
     "Anaesthetist's Fee": [
         "anaesth", "anesthes", "anesthetist", "anaesthetist",
-        "anaesthesia", "anesthesia", "sedation",
+        "anaesthesia", "anesthesia", "sedation", "anaesthesia drug",
+        "anesthesia agent", "general anaesthesia", "spinal block",
+        "epidural", "nerve block",
     ],
+    # Professional / doctor fees
     "Professional Fee": [
         "professional fee", "doctor fee", "physician fee", "consultant fee",
         "specialist fee", "attending fee", "medical fee", "dr.", "dr ",
-        "consultation", "visit charge", "ward round",
+        "consultation", "visit charge", "ward round", "referral fee",
+        "cardiologist", "radiologist", "pathologist", "internist",
+        "attending physician", "ward consultation",
     ],
+    # UB-04 revenue codes 030X — laboratory
+    "Laboratory": [
+        "laboratory", "lab fee", "blood count", "cbc", "metabolic panel",
+        "blood gas", "abg", "coagulation", "pt/", "aptt", "inr",
+        "blood culture", "urinalysis", "urine culture", "serology",
+        "histopathology", "biopsy", "pathology", "culture", "sensitivity",
+        "hematology", "biochemistry", "lipid profile", "thyroid",
+        "glucose", "creatinine", "troponin", "d-dimer",
+    ],
+    # UB-04 revenue codes 032X — radiology / imaging
+    "Radiology / Imaging": [
+        "radiology", "x-ray", "xray", "ct scan", "mri", "ultrasound",
+        "ecg", "ekg", "electrocardiogram", "echo", "echocardiogram",
+        "mammogram", "fluoroscopy", "nuclear", "pet scan", "doppler",
+        "angiogram", "imaging", "radiograph", "scan",
+    ],
+    # UB-04 revenue codes 025X — pharmacy
+    "Pharmacy / Medications": [
+        "pharmacy", "medication", "medicine", "drug", "iv fluid",
+        "normal saline", "lactated", "dextrose", "antibiotic",
+        "cefazolin", "metronidazole", "morphine", "paracetamol",
+        "ondansetron", "pantoprazole", "enoxaparin", "heparin",
+        "insulin", "steroid", "analgesic", "anticoagulant",
+        "prophylaxis", "intravenous", "oral medication",
+    ],
+    # Items not covered by standard insurance (UB-04 rev code 099X extras)
     "Not Covered by Insurance": [
-        "not covered", "non-covered", "exclusion", "cosmetic",
-        "elective", "experimental", "investigational", "personal",
-        "telephone", "tv", "television", "wifi", "internet",
-        "newspaper", "guest meal", "comfort", "amenity",
+        "not covered", "non-covered", "non covered", "exclusion",
+        "cosmetic", "experimental", "investigational", "elective",
+        "personal", "telephone", "tv ", "television", "wifi",
+        "internet", "newspaper", "guest meal", "comfort kit",
+        "amenity", "take-home", "retail medication", "beauty",
+        "private nurse", "special nurse", "uplift", "upgrade",
     ],
     "Miscellaneous": [],  # catch-all — assigned last
 }
 
 CATEGORY_COLORS = {
     "Room & Board":              "D6E4F0",
+    "ICU / Intensive Care":      "C9DAF8",
     "Operating Room":            "FCE4D6",
     "Surgeon's Fee":             "E2EFDA",
     "Anaesthetist's Fee":        "FFF2CC",
     "Professional Fee":          "EAD1DC",
+    "Laboratory":                "D9EAD3",
+    "Radiology / Imaging":       "FFE599",
+    "Pharmacy / Medications":    "D9D2E9",
     "Not Covered by Insurance":  "F4CCCC",
     "Miscellaneous":             "EFEFEF",
 }
@@ -132,28 +186,36 @@ def parse_lines(text: str) -> list[dict]:
 
 # Maps section header keywords found IN the bill to our standard category names
 SECTION_HEADER_MAP = {
-    "room":          "Room & Board",
-    "bed":           "Room & Board",
-    "accommodation": "Room & Board",
-    "ward":          "Room & Board",
-    "theatre":       "Operating Room",
-    "theater":       "Operating Room",
-    "operating":     "Operating Room",
-    "surgeon":       "Surgeon's Fee",
-    "surgical fee":  "Surgeon's Fee",
-    "anaesth":       "Anaesthetist's Fee",
-    "anesthes":      "Anaesthetist's Fee",
-    "professional":  "Professional Fee",
-    "physician":     "Professional Fee",
-    "doctor":        "Professional Fee",
-    "diagnostic":    "Miscellaneous",
-    "laboratory":    "Miscellaneous",
-    "pharmacy":      "Miscellaneous",
-    "medication":    "Miscellaneous",
-    "drug":          "Miscellaneous",
-    "miscellaneous": "Not Covered by Insurance",
-    "non-covered":   "Not Covered by Insurance",
-    "not covered":   "Not Covered by Insurance",
+    "room":              "Room & Board",
+    "bed":               "Room & Board",
+    "accommodation":     "Room & Board",
+    "ward charge":       "Room & Board",
+    "nursing charge":    "Room & Board",
+    "icu":               "ICU / Intensive Care",
+    "intensive care":    "ICU / Intensive Care",
+    "critical care":     "ICU / Intensive Care",
+    "theatre":           "Operating Room",
+    "theater":           "Operating Room",
+    "operating room":    "Operating Room",
+    "operating theatre": "Operating Room",
+    "surgeon":           "Surgeon's Fee",
+    "surgical fee":      "Surgeon's Fee",
+    "anaesth":           "Anaesthetist's Fee",
+    "anesthes":          "Anaesthetist's Fee",
+    "professional fee":  "Professional Fee",
+    "physician fee":     "Professional Fee",
+    "doctor fee":        "Professional Fee",
+    "diagnostic":        "Laboratory",
+    "laboratory":        "Laboratory",
+    "lab ":              "Laboratory",
+    "radiology":         "Radiology / Imaging",
+    "imaging":           "Radiology / Imaging",
+    "pharmacy":          "Pharmacy / Medications",
+    "medication":        "Pharmacy / Medications",
+    "drug":              "Pharmacy / Medications",
+    "miscellaneous":     "Not Covered by Insurance",
+    "non-covered":       "Not Covered by Insurance",
+    "not covered":       "Not Covered by Insurance",
 }
 
 def section_header_to_category(header: str) -> str:
@@ -234,7 +296,9 @@ def extract_line_items(pdf_path: Path) -> list[dict]:
                             else:
                                 item_kw = categorize(description)
                                 if item_kw in ("Anaesthetist's Fee", "Professional Fee", "Surgeon's Fee",
-                                               "Room & Board", "Operating Room", "Not Covered by Insurance"):
+                                               "Room & Board", "ICU / Intensive Care", "Operating Room",
+                                               "Laboratory", "Radiology / Imaging", "Pharmacy / Medications",
+                                               "Not Covered by Insurance"):
                                     category = item_kw
                                 elif current_section_category:
                                     category = current_section_category
