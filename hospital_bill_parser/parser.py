@@ -130,16 +130,54 @@ def parse_lines(text: str) -> list[dict]:
     return items
 
 
+# Maps section header keywords found IN the bill to our standard category names
+SECTION_HEADER_MAP = {
+    "room":          "Room & Board",
+    "bed":           "Room & Board",
+    "accommodation": "Room & Board",
+    "ward":          "Room & Board",
+    "theatre":       "Operating Room",
+    "theater":       "Operating Room",
+    "operating":     "Operating Room",
+    "surgeon":       "Surgeon's Fee",
+    "surgical fee":  "Surgeon's Fee",
+    "anaesth":       "Anaesthetist's Fee",
+    "anesthes":      "Anaesthetist's Fee",
+    "professional":  "Professional Fee",
+    "physician":     "Professional Fee",
+    "doctor":        "Professional Fee",
+    "diagnostic":    "Miscellaneous",
+    "laboratory":    "Miscellaneous",
+    "pharmacy":      "Miscellaneous",
+    "medication":    "Miscellaneous",
+    "drug":          "Miscellaneous",
+    "miscellaneous": "Not Covered by Insurance",
+    "non-covered":   "Not Covered by Insurance",
+    "not covered":   "Not Covered by Insurance",
+}
+
+def section_header_to_category(header: str) -> str:
+    h = header.lower()
+    for kw, cat in SECTION_HEADER_MAP.items():
+        if kw in h:
+            return cat
+    return None
+
+
 def extract_line_items(pdf_path: Path) -> list[dict]:
     """
     Extract rows from PDF. Auto-detects text-based vs scanned and uses OCR if needed.
+    Uses section headers found in the bill to categorize items accurately.
     Returns list of {"description": str, "amount": str, "raw": str}.
     """
     items = []
 
     if is_text_based(pdf_path):
-        # Text-based PDF: use pdfplumber tables + text
         with pdfplumber.open(pdf_path) as pdf:
+            current_section_category = None
+            skip_headers = {"description", "qty", "unit price", "amount", "note",
+                            "patient name", "date admitted", "ward", "diagnosis"}
+
             for page in pdf.pages:
                 tables = page.extract_tables()
                 if tables:
@@ -149,26 +187,77 @@ def extract_line_items(pdf_path: Path) -> list[dict]:
                                 continue
                             cells = [c.strip() if c else "" for c in row]
                             non_empty = [c for c in cells if c]
-                            if len(non_empty) < 2:
+                            if not non_empty:
                                 continue
+
+                            first = cells[0].lower() if cells[0] else ""
+
+                            # Skip column header rows and patient info rows
+                            if first in skip_headers:
+                                continue
+
+                            # Detect section header: first cell has text, rest are None/empty
+                            rest_empty = all(not c for c in cells[1:])
+                            if rest_empty and cells[0] and len(cells[0]) > 3:
+                                cat = section_header_to_category(cells[0])
+                                if cat:
+                                    current_section_category = cat
+                                continue
+
+                            # Skip subtotal rows
+                            if first == "" and any("subtotal" in (c or "").lower() for c in cells):
+                                continue
+
+                            # Extract description and amount
                             desc_parts = []
                             amount = ""
+                            note = ""
+                            # Last non-empty cell that's a note flag
+                            if cells[-1] and not looks_like_amount(cells[-1].replace(",","")):
+                                note = cells[-1]
+                                cells = cells[:-1]
                             for cell in reversed(cells):
-                                if not amount and looks_like_amount(cell.replace(",", "").replace(".", "")):
+                                if not amount and cell and looks_like_amount(cell.replace(",", "").replace(".", "")):
                                     amount = cell
                                 else:
                                     if cell:
                                         desc_parts.insert(0, cell)
                             description = " ".join(desc_parts).strip()
-                            if description and len(description) > 2:
-                                items.append({"description": description, "amount": amount, "raw": " | ".join(non_empty)})
+                            if not description or len(description) <= 2:
+                                continue
+
+                            # Determine category: non-covered note overrides everything;
+                            # then check item-level keywords for specific fee types;
+                            # then fall back to section header, then keyword match.
+                            if "non-covered" in note.lower() or "not covered" in note.lower():
+                                category = "Not Covered by Insurance"
+                            else:
+                                item_kw = categorize(description)
+                                if item_kw in ("Anaesthetist's Fee", "Professional Fee", "Surgeon's Fee",
+                                               "Room & Board", "Operating Room", "Not Covered by Insurance"):
+                                    category = item_kw
+                                elif current_section_category:
+                                    category = current_section_category
+                                else:
+                                    category = item_kw
+
+                            items.append({
+                                "description": description,
+                                "amount": amount,
+                                "note": note,
+                                "raw": " | ".join(non_empty),
+                                "category": category,
+                            })
                 else:
                     text = page.extract_text() or ""
-                    items.extend(parse_lines(text))
+                    for item in parse_lines(text):
+                        item["category"] = categorize(item["description"])
+                        items.append(item)
     else:
-        # Scanned PDF: OCR with tesseract (offline)
         text = extract_text_from_scanned(pdf_path)
-        items.extend(parse_lines(text))
+        for item in parse_lines(text):
+            item["category"] = categorize(item["description"])
+            items.append(item)
 
     return items
 
@@ -316,9 +405,10 @@ def main():
         print("No line items found. The PDF may be scanned (image-based). Try OCR first.")
         sys.exit(1)
 
-    # Categorize
+    # Ensure every item has a category (fallback for items without one)
     for item in items:
-        item["category"] = categorize(item["description"])
+        if "category" not in item:
+            item["category"] = categorize(item["description"])
 
     # Summary
     from collections import Counter
