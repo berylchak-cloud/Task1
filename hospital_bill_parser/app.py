@@ -5,7 +5,24 @@ Double-click to run. No command line needed.
 """
 
 import sys
+import os
 import threading
+
+# ── Point pytesseract to bundled Tesseract when running as .exe ──
+def _setup_tesseract():
+    if getattr(sys, "frozen", False):
+        from pathlib import Path
+        base = Path(sys._MEIPASS)
+        exe  = base / "tesseract" / ("tesseract.exe" if sys.platform == "win32"
+                                     else "bin/tesseract")
+        if exe.exists():
+            os.environ["TESSDATA_PREFIX"] = str(base / "tesseract" / "tessdata")
+            try:
+                import pytesseract
+                pytesseract.pytesseract.tesseract_cmd = str(exe)
+            except Exception:
+                pass
+_setup_tesseract()
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from pathlib import Path
