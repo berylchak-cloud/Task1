@@ -29,7 +29,9 @@ from pathlib import Path
 
 # ── make sure the parser module is importable from the same folder ──
 sys.path.insert(0, str(Path(__file__).parent))
-from parser import extract_line_items, categorize, write_excel, CATEGORIES
+from parser import (extract_line_items, extract_line_items_from_pages,
+                    split_into_claims, categorize,
+                    write_excel, write_excel_multi, CATEGORIES)
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -168,23 +170,45 @@ class App(tk.Tk):
 
     def _process(self, pdf_path: Path, out_path: Path):
         try:
-            items = extract_line_items(pdf_path)
-            if not items:
-                self.after(0, lambda: self._done(False,
-                    "No line items found.\nThe PDF may be a scanned image — "
-                    "install Tesseract OCR and try again."))
-                return
+            claims = split_into_claims(pdf_path)
 
-            for item in items:
-                if "category" not in item:
-                    item["category"] = categorize(item["description"])
+            if len(claims) > 1:
+                self._log(f"Batch PDF — {len(claims)} section(s) detected:")
+                for c in claims:
+                    self._log(f"  [{c['type'].upper():6}] p.{c['page_start']}–{c['page_end']}  {c['label']}")
 
-            from collections import Counter
-            counts = Counter(item["category"] for item in items)
-            summary = "\n".join(f"  {cat}: {n}" for cat, n in counts.items())
-            self._log(f"Extracted {len(items)} line items:\n{summary}")
+                claims_data = []
+                for claim in claims:
+                    if claim["type"] == "report":
+                        self._log(f"  Skipping report: {claim['label']}")
+                        claims_data.append({**claim, "items": []})
+                        continue
+                    self._log(f"  Processing: {claim['label']}...")
+                    items = extract_line_items_from_pages(pdf_path, claim["page_start"], claim["page_end"])
+                    for item in items:
+                        if "category" not in item:
+                            item["category"] = categorize(item["description"])
+                    self._log(f"    → {len(items)} line items")
+                    claims_data.append({**claim, "items": items})
 
-            write_excel(items, out_path)
+                write_excel_multi(claims_data, out_path)
+
+            else:
+                items = extract_line_items(pdf_path)
+                if not items:
+                    self.after(0, lambda: self._done(False,
+                        "No line items found.\nThe PDF may be a scanned image — "
+                        "install Tesseract OCR and try again."))
+                    return
+                for item in items:
+                    if "category" not in item:
+                        item["category"] = categorize(item["description"])
+                from collections import Counter
+                counts = Counter(item["category"] for item in items)
+                summary = "\n".join(f"  {cat}: {n}" for cat, n in counts.items())
+                self._log(f"Extracted {len(items)} line items:\n{summary}")
+                write_excel(items, out_path)
+
             self.after(0, lambda: self._done(True, str(out_path)))
 
         except Exception as e:
