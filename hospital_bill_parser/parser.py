@@ -305,10 +305,25 @@ def extract_line_items(pdf_path: Path) -> list[dict]:
                                 else:
                                     category = item_kw
 
+                            # Try to extract a date from the row cells
+                            date_val = ""
+                            date_re = re.compile(
+                                r"\b(\d{1,2}[-/]\w{2,3}[-/]\d{2,4}"
+                                r"|\d{1,2}\s+\w+\s+\d{4}"
+                                r"|\w+\s+\d{1,2},?\s+\d{4}"
+                                r"|\d{4}[-/]\d{2}[-/]\d{2})\b"
+                            )
+                            for cell in non_empty:
+                                m = date_re.search(cell)
+                                if m:
+                                    date_val = m.group(0)
+                                    break
+
                             items.append({
                                 "description": description,
                                 "amount": amount,
                                 "note": note,
+                                "date": date_val,
                                 "raw": " | ".join(non_empty),
                                 "category": category,
                             })
@@ -335,114 +350,150 @@ def make_border():
     return Border(left=thin, right=thin, top=thin, bottom=thin)
 
 
+def _apply_header_row(ws, headers: list, row: int, fill_color: str = "1F3864"):
+    hf = Font(bold=True, color="FFFFFF")
+    hfill = PatternFill("solid", fgColor=fill_color)
+    border = make_border()
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=row, column=col)
+        cell.value = h
+        cell.font = hf
+        cell.fill = hfill
+        cell.border = border
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[row].height = 18
+
+
 def write_excel(items: list[dict], out_path: Path):
     wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Hospital Bill"
 
-    # Group items by category
+    # -----------------------------------------------------------------------
+    # Sheet 1 — Summary by category
+    # -----------------------------------------------------------------------
+    ws_sum = wb.active
+    ws_sum.title = "Summary"
+
+    border = make_border()
+    center = Alignment(horizontal="center", vertical="center")
+    total_font = Font(bold=True, italic=True)
+
+    ws_sum.merge_cells("A1:C1")
+    t = ws_sum["A1"]
+    t.value = "Hospital Bill — Category Summary"
+    t.font = Font(bold=True, size=14, color="FFFFFF")
+    t.fill = PatternFill("solid", fgColor="1F3864")
+    t.alignment = center
+    ws_sum.row_dimensions[1].height = 28
+
+    _apply_header_row(ws_sum, ["Category", "Total Amount", "Items"], 2)
+
     grouped: dict[str, list[dict]] = {cat: [] for cat in CATEGORIES}
     for item in items:
         grouped[item["category"]].append(item)
 
-    header_font = Font(bold=True, color="FFFFFF")
-    header_fill = PatternFill("solid", fgColor="2F5496")
-    cat_font = Font(bold=True)
-    total_font = Font(bold=True, italic=True)
-    border = make_border()
-    center = Alignment(horizontal="center", vertical="center")
-
-    # Title row
-    ws.merge_cells("A1:D1")
-    title_cell = ws["A1"]
-    title_cell.value = "Hospital Bill — Categorized Summary"
-    title_cell.font = Font(bold=True, size=14, color="FFFFFF")
-    title_cell.fill = PatternFill("solid", fgColor="1F3864")
-    title_cell.alignment = center
-    ws.row_dimensions[1].height = 28
-
-    # Column headers
-    headers = ["Category", "Description", "Amount", "Note"]
-    ws.append(headers)
-    for col, _ in enumerate(headers, 1):
-        cell = ws.cell(row=2, column=col)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.border = border
-        cell.alignment = center
-    ws.row_dimensions[2].height = 18
-
-    current_row = 3
     grand_total = 0.0
-
+    current_row = 3
     for category, cat_items in grouped.items():
         if not cat_items:
             continue
-
         color = CATEGORY_COLORS.get(category, "FFFFFF")
         cat_fill = PatternFill("solid", fgColor=color)
-
-        # Category header row
-        ws.merge_cells(f"A{current_row}:D{current_row}")
-        cat_cell = ws.cell(row=current_row, column=1)
-        cat_cell.value = f"  {category}"
-        cat_cell.font = Font(bold=True, size=11)
-        cat_cell.fill = PatternFill("solid", fgColor=color)
-        cat_cell.border = border
-        ws.row_dimensions[current_row].height = 16
-        current_row += 1
-
         cat_total = 0.0
         for item in cat_items:
-            ws.cell(row=current_row, column=1).value = category
-            ws.cell(row=current_row, column=2).value = item["description"]
-            ws.cell(row=current_row, column=3).value = item["amount"]
-            ws.cell(row=current_row, column=4).value = item.get("note", "")
-
-            # Parse amount for totaling
             try:
                 cat_total += float(item["amount"].replace(",", ""))
             except (ValueError, AttributeError):
                 pass
-
-            for col in range(1, 5):
-                cell = ws.cell(row=current_row, column=col)
-                cell.fill = cat_fill
-                cell.border = border
-                cell.alignment = Alignment(vertical="center")
-            current_row += 1
-
-        # Category subtotal
-        ws.cell(row=current_row, column=2).value = f"Subtotal — {category}"
-        ws.cell(row=current_row, column=3).value = f"{cat_total:,.2f}" if cat_total else ""
-        for col in range(1, 5):
-            cell = ws.cell(row=current_row, column=col)
-            cell.font = total_font
-            cell.fill = PatternFill("solid", fgColor=color)
-            cell.border = border
-        current_row += 1
         grand_total += cat_total
 
-        # Spacer
+        ws_sum.cell(row=current_row, column=1).value = category
+        ws_sum.cell(row=current_row, column=2).value = f"{cat_total:,.2f}" if cat_total else ""
+        ws_sum.cell(row=current_row, column=3).value = len(cat_items)
+        for col in range(1, 4):
+            cell = ws_sum.cell(row=current_row, column=col)
+            cell.fill = cat_fill
+            cell.border = border
+            cell.alignment = Alignment(vertical="center")
         current_row += 1
 
-    # Grand total
-    ws.cell(row=current_row, column=2).value = "GRAND TOTAL"
-    ws.cell(row=current_row, column=3).value = f"{grand_total:,.2f}" if grand_total else ""
-    for col in range(1, 5):
-        cell = ws.cell(row=current_row, column=col)
+    # Grand total row
+    ws_sum.cell(row=current_row, column=1).value = "GRAND TOTAL"
+    ws_sum.cell(row=current_row, column=2).value = f"{grand_total:,.2f}"
+    ws_sum.cell(row=current_row, column=3).value = len(items)
+    for col in range(1, 4):
+        cell = ws_sum.cell(row=current_row, column=col)
         cell.font = Font(bold=True, size=12, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="1F3864")
         cell.border = border
+        cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    # Column widths
-    ws.column_dimensions["A"].width = 26
-    ws.column_dimensions["B"].width = 48
-    ws.column_dimensions["C"].width = 16
-    ws.column_dimensions["D"].width = 22
+    ws_sum.column_dimensions["A"].width = 28
+    ws_sum.column_dimensions["B"].width = 18
+    ws_sum.column_dimensions["C"].width = 10
+
+    # -----------------------------------------------------------------------
+    # Sheet 2 — Full line-by-line breakdown (every item with date)
+    # -----------------------------------------------------------------------
+    ws_det = wb.create_sheet("Full Breakdown")
+
+    ws_det.merge_cells("A1:F1")
+    t2 = ws_det["A1"]
+    t2.value = "Hospital Bill — Full Itemized Breakdown"
+    t2.font = Font(bold=True, size=14, color="FFFFFF")
+    t2.fill = PatternFill("solid", fgColor="1F3864")
+    t2.alignment = center
+    ws_det.row_dimensions[1].height = 28
+
+    _apply_header_row(ws_det, ["#", "Date", "Category", "Description", "Amount", "Note / Coverage"], 2)
+
+    current_row = 3
+    prev_category = None
+    row_num = 1
+    for item in items:
+        category = item["category"]
+        color = CATEGORY_COLORS.get(category, "FFFFFF")
+        cat_fill = PatternFill("solid", fgColor=color)
+
+        # Insert a category divider when the category changes
+        if category != prev_category:
+            ws_det.merge_cells(f"A{current_row}:F{current_row}")
+            div = ws_det.cell(row=current_row, column=1)
+            div.value = f"  {category}"
+            div.font = Font(bold=True, size=10)
+            div.fill = PatternFill("solid", fgColor=color)
+            div.border = border
+            ws_det.row_dimensions[current_row].height = 15
+            current_row += 1
+            prev_category = category
+
+        ws_det.cell(row=current_row, column=1).value = row_num
+        ws_det.cell(row=current_row, column=2).value = item.get("date", "")
+        ws_det.cell(row=current_row, column=3).value = category
+        ws_det.cell(row=current_row, column=4).value = item["description"]
+        ws_det.cell(row=current_row, column=5).value = item["amount"]
+        note = item.get("note", "")
+        ws_det.cell(row=current_row, column=6).value = note
+        if note and ("non-covered" in note.lower() or "not covered" in note.lower()):
+            ws_det.cell(row=current_row, column=6).font = Font(color="CC0000", bold=True)
+
+        for col in range(1, 7):
+            cell = ws_det.cell(row=current_row, column=col)
+            cell.fill = cat_fill
+            cell.border = border
+            cell.alignment = Alignment(vertical="center", wrap_text=(col == 4))
+
+        current_row += 1
+        row_num += 1
+
+    ws_det.column_dimensions["A"].width = 5
+    ws_det.column_dimensions["B"].width = 14
+    ws_det.column_dimensions["C"].width = 24
+    ws_det.column_dimensions["D"].width = 50
+    ws_det.column_dimensions["E"].width = 14
+    ws_det.column_dimensions["F"].width = 20
 
     wb.save(out_path)
-    print(f"Saved: {out_path}")
+    print(f"Saved: {out_path} (2 sheets: Summary + Full Breakdown)")
 
 
 # ---------------------------------------------------------------------------
