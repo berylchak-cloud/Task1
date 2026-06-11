@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+dist/
+build/
+*.spec
+_tesseract_bundle/
+_app_build.py
+_hook_tesseract.py
+*.xlsx
+*.pdf
