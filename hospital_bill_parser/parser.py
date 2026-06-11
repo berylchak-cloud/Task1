@@ -15,6 +15,8 @@ import argparse
 from pathlib import Path
 
 import pdfplumber
+import pytesseract
+from pdf2image import convert_from_path
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -84,59 +86,89 @@ def looks_like_amount(token: str) -> bool:
     return bool(re.fullmatch(r"[\d,]+\.?\d*", token.replace(",", "")))
 
 
+def extract_text_from_scanned(pdf_path: Path) -> str:
+    """Use OCR (tesseract) to extract text from a scanned/image-based PDF. Fully offline."""
+    print("  Scanned PDF detected — running OCR (this may take a moment)...")
+    pages = convert_from_path(pdf_path, dpi=300)
+    all_text = []
+    for i, page_img in enumerate(pages, 1):
+        print(f"  OCR page {i}/{len(pages)}...")
+        text = pytesseract.image_to_string(page_img, lang="eng")
+        all_text.append(text)
+    return "\n".join(all_text)
+
+
+def is_text_based(pdf_path: Path) -> bool:
+    """Returns True if the PDF contains selectable text (not a pure scan)."""
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            if page.extract_text():
+                return True
+    return False
+
+
+def parse_lines(text: str) -> list[dict]:
+    items = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or len(line) < 4:
+            continue
+        tokens = line.split()
+        if len(tokens) < 2:
+            continue
+        amount = ""
+        desc_tokens = []
+        for tok in reversed(tokens):
+            clean = tok.replace(",", "").replace(".", "")
+            if not amount and clean.isdigit() and len(clean) >= 2:
+                amount = tok
+            else:
+                desc_tokens.insert(0, tok)
+        description = " ".join(desc_tokens).strip()
+        if description and len(description) > 3:
+            items.append({"description": description, "amount": amount, "raw": line})
+    return items
+
+
 def extract_line_items(pdf_path: Path) -> list[dict]:
     """
-    Extract rows from PDF tables or, as fallback, heuristic line parsing.
+    Extract rows from PDF. Auto-detects text-based vs scanned and uses OCR if needed.
     Returns list of {"description": str, "amount": str, "raw": str}.
     """
     items = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            # Try structured table extraction first
-            tables = page.extract_tables()
-            if tables:
-                for table in tables:
-                    for row in table:
-                        if not row:
-                            continue
-                        cells = [c.strip() if c else "" for c in row]
-                        non_empty = [c for c in cells if c]
-                        if len(non_empty) < 2:
-                            continue
-                        # Heuristic: last numeric cell is the amount
-                        desc_parts = []
-                        amount = ""
-                        for cell in reversed(cells):
-                            if not amount and looks_like_amount(cell.replace(",", "").replace(".", "")):
-                                amount = cell
-                            else:
-                                if cell:
-                                    desc_parts.insert(0, cell)
-                        description = " ".join(desc_parts).strip()
-                        if description and len(description) > 2:
-                            items.append({"description": description, "amount": amount, "raw": " | ".join(non_empty)})
-            else:
-                # Fallback: parse raw text lines
-                text = page.extract_text() or ""
-                for line in text.splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    tokens = line.split()
-                    if len(tokens) < 2:
-                        continue
-                    # Last token that looks like money
-                    amount = ""
-                    desc_tokens = []
-                    for tok in reversed(tokens):
-                        clean = tok.replace(",", "").replace(".", "")
-                        if not amount and clean.isdigit():
-                            amount = tok
-                        else:
-                            desc_tokens.insert(0, tok)
-                    description = " ".join(desc_tokens).strip()
-                    if description and len(description) > 3:
-                        items.append({"description": description, "amount": amount, "raw": line})
+
+    if is_text_based(pdf_path):
+        # Text-based PDF: use pdfplumber tables + text
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                tables = page.extract_tables()
+                if tables:
+                    for table in tables:
+                        for row in table:
+                            if not row:
+                                continue
+                            cells = [c.strip() if c else "" for c in row]
+                            non_empty = [c for c in cells if c]
+                            if len(non_empty) < 2:
+                                continue
+                            desc_parts = []
+                            amount = ""
+                            for cell in reversed(cells):
+                                if not amount and looks_like_amount(cell.replace(",", "").replace(".", "")):
+                                    amount = cell
+                                else:
+                                    if cell:
+                                        desc_parts.insert(0, cell)
+                            description = " ".join(desc_parts).strip()
+                            if description and len(description) > 2:
+                                items.append({"description": description, "amount": amount, "raw": " | ".join(non_empty)})
+                else:
+                    text = page.extract_text() or ""
+                    items.extend(parse_lines(text))
+    else:
+        # Scanned PDF: OCR with tesseract (offline)
+        text = extract_text_from_scanned(pdf_path)
+        items.extend(parse_lines(text))
 
     return items
 
