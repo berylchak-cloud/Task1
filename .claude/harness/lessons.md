@@ -20,3 +20,11 @@ response received" — a transport glitch, not a denial.
 RULE: Distinguish transport glitches from denials. "stream closed" = retry
 once after the connection cycles (it has always succeeded on retry); an
 explicit denial = never retry verbatim.
+
+## L-003 (2026-07-06)
+CONTEXT: Resolving the L-001 push-403 wall.
+ERROR: (resolution record) Root cause was the Claude GitHub App not being
+installed on the repo owner account — session had read-only account auth.
+RULE: On push 403, tell the user to install the app at
+https://github.com/apps/claude → select the repo → approve Contents
+Read & Write. Push works immediately after; no session restart needed.
