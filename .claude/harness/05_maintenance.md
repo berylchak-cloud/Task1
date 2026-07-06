@@ -20,9 +20,12 @@
 ### Tier B — user approval required BEFORE editing
 - Any Iron Rule in CLAUDE.md (add / remove / weaken / "clarify" in a way that
   changes behavior).
-- Escalation thresholds and retry ceilings (02), DONE criteria (03 §2),
-  circuit-breaker triggers (03 §3). These numbers are load-bearing: a model
-  that finds them inconvenient is exactly the model that must not change them.
+- ANY numeric threshold anywhere in the harness — retry ceilings and backoff
+  timings (01, 02, CLAUDE.md), read budgets (01), dispatch triggers (02),
+  DONE criteria (03 §2), circuit-breaker triggers (03 §3), the 120-line
+  compaction trigger (this file). Numbers are load-bearing: a model that
+  finds them inconvenient is exactly the model that must not change them.
+  Numbers are NEVER "broken references" under Tier A.
 - Deleting any harness file or merging files together.
 - Restructuring CLAUDE.md beyond the Settled Facts list.
 

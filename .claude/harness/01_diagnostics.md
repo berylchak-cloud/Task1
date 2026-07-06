@@ -39,10 +39,11 @@ the **default outcome** of any un-pushed work. A second variant: the model
    or MCP `get_file_contents`) returns the expected content. Not before.
 2. Commit + push after **every completed deliverable**, not at the end of the
    session. Maximum unpushed work at any time: one deliverable.
-3. If push fails: retry per the backoff rule (2s/4s/8s/16s), then **tell the
-   user immediately in the same turn** — do not continue building on top of
-   unpushable work for more than the current deliverable. Quote the exact
-   error. A 403 means permissions, not network: do not hammer it.
+3. If push fails with a **network error**: retry with backoff (2s/4s/8s/16s).
+   If it fails with **403**: that is permissions, not network — do NOT retry;
+   **tell the user immediately in the same turn**, quoting the exact error
+   (only the user can re-grant write access). Either way, never build more
+   than the current deliverable on top of an unpushable tree.
 4. Never report completion with the words "done/completed/寫入完成" unless
    step 1 passed. If only local commits exist, say exactly:
    "committed locally, NOT pushed — will be lost when this session ends."
@@ -61,12 +62,17 @@ that disconnected, or retrying the same failing call in a loop.
    `Grep`/`Glob`. GitHub MCP tools are only for things local git cannot do
    (PRs, issues, pushing when the git proxy is broken). Fewer MCP calls =
    fewer decay surfaces.
-2. **Read budget:** never `Read` more than ~150 lines at once from a file
-   >300 lines; `Grep` first, then read the matched region with `offset`/`limit`.
-3. **Retry ceiling:** the same tool call may be corrected and retried **twice**.
-   On the third consecutive failure of the same operation, STOP, and follow
-   the escalation ladder in `02_orchestration.md`. Never retry a verbatim
-   call that was just denied or errored.
+2. **Read budget (per call):** never `Read` more than ~150 lines at once from
+   a file >300 lines; `Grep` first, then read the matched region with
+   `offset`/`limit`. (Distinct from the >3-files/>300-total-lines *dispatch*
+   trigger in `02_orchestration.md` Rule 1 — that one decides when to hand
+   the whole job to a subagent.)
+3. **Retry ceiling (two strikes, same as CLAUDE.md Iron Rule 5):** a failing
+   operation may be corrected and retried **once**. On the second consecutive
+   failure of the same operation — counting every variant aimed at the same
+   effect; rewording does not reset the count — STOP and follow the
+   escalation ladder in `02_orchestration.md`. Never retry a verbatim call
+   that was just denied.
 4. Bulk scanning (>3 files or unknown scope) goes to an `Explore` subagent;
    the main conversation receives only `file:line` conclusions
    (see `02_orchestration.md`).

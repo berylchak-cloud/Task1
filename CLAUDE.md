@@ -21,17 +21,19 @@ No test suite. No CI. Runtime deps in `hospital_bill_parser/requirements.txt`.
 1. **DONE = pushed + read-back.** Work only counts as finished when the commit
    exists on `origin` and the file has been read back from the remote.
    Sessions run in ephemeral containers: unpushed files are destroyed.
-   Full protocol: `harness/01_diagnostics.md` pain point #1.
+   Full protocol: `.claude/harness/01_diagnostics.md` pain point #1.
 2. **Push per deliverable.** Never accumulate more than one finished
    deliverable unpushed. If push fails with 403, report to the user in the
    same turn; do not silently continue.
 3. **Implementer never self-verifies.** Verification of nontrivial work goes
-   to a fresh-context subagent. Protocol: `harness/02_orchestration.md`.
+   to a fresh-context subagent. Protocol: `.claude/harness/02_orchestration.md`.
 4. **Local-first.** Use Bash git / Read / Grep for this repo; GitHub MCP only
    for what local git cannot do.
-5. **Two strikes → escalate, don't loop.** Same operation failing twice means
-   stop and follow the ladder in `harness/02_orchestration.md`. Never retry a
-   just-denied call verbatim.
+5. **Two strikes → escalate, don't loop.** The same operation failing twice
+   (counting every variant aimed at the same effect — rewording does not
+   reset the count) means stop and follow the ladder in
+   `.claude/harness/02_orchestration.md`. Never retry a just-denied call
+   verbatim.
 6. **Don't touch Settled Facts** (below) unless the user names them in the
    current session.
 

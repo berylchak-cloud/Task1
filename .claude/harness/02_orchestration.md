@@ -55,9 +55,11 @@ before sending, not after the subagent wanders.
 | Strong model solved it and the fix is a repeatable pattern | Write the pattern as a concrete recipe/script, then batch-apply with `sonnet` or `haiku`. Don't pay strong-model prices for repetition. |
 | Same subtask has consumed **2 full escalation rounds** | Circuit-break: stop all work on it, report state + failure trail to the user, ask. (Rubric: `03_rubrics.md` §3.) |
 
-"Same subtask fails" means the *goal* keeps failing — including "fixed" one
-error and got a new one from the same root cause. Rewording a prompt does not
-reset the counter.
+Terminology: an **operation** is a single tool call aimed at one effect; a
+**subtask** is the goal that operation serves. Strike counters attach to the
+GOAL: retries, rewordings, and near-identical variants all increment the same
+counter. "Same subtask fails" includes "fixed" one error only to get a new
+one from the same root cause.
 
 ## Rule 4 — Isolated verification(驗證不自驗)
 
